@@ -247,13 +247,12 @@ func (o *Oracle) DeleteUser(ctx context.Context, req dbplugin.DeleteUserRequest)
 	// Effectively a no-op if the transaction commits successfully
 	defer tx.Rollback()
 
-	err = o.disconnectSession(db, req.Username)
-	if err != nil {
-		return dbplugin.DeleteUserResponse{}, fmt.Errorf("failed to disconnect user %s: %w", req.Username, err)
-	}
-
 	revocationStatements := req.Statements.Commands
 	if len(revocationStatements) == 0 {
+		err = o.disconnectSession(db, req.Username)
+		if err != nil {
+			return dbplugin.DeleteUserResponse{}, fmt.Errorf("failed to disconnect user %s: %w", req.Username, err)	
+		}
 		revocationStatements = []string{revocationSQL}
 	}
 

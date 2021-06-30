@@ -30,6 +30,19 @@ func NewInterceptLogger(opts *LoggerOptions) InterceptLogger {
 	return intercept
 }
 
+func (i *interceptLogger) Log(level Level, msg string, args ...interface{}) {
+	i.Logger.Log(level, msg, args...)
+	if atomic.LoadInt32(i.sinkCount) == 0 {
+		return
+	}
+
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	for s := range i.Sinks {
+		s.Accept(i.Name(), level, msg, i.retrieveImplied(args...)...)
+	}
+}
+
 // Emit the message and args at TRACE level to log and sinks
 func (i *interceptLogger) Trace(msg string, args ...interface{}) {
 	i.Logger.Trace(msg, args...)
@@ -200,18 +213,34 @@ func (i *interceptLogger) DeregisterSink(sink SinkAdapter) {
 // Create a *log.Logger that will send it's data through this Logger. This
 // allows packages that expect to be using the standard library to log to
 // actually use this logger, which will also send to any registered sinks.
-func (l *interceptLogger) StandardLoggerIntercept(opts *StandardLoggerOptions) *log.Logger {
+func (i *interceptLogger) StandardLoggerIntercept(opts *StandardLoggerOptions) *log.Logger {
 	if opts == nil {
 		opts = &StandardLoggerOptions{}
 	}
 
-	return log.New(l.StandardWriterIntercept(opts), "", 0)
+	return log.New(i.StandardWriterIntercept(opts), "", 0)
 }
 
-func (l *interceptLogger) StandardWriterIntercept(opts *StandardLoggerOptions) io.Writer {
+func (i *interceptLogger) StandardWriterIntercept(opts *StandardLoggerOptions) io.Writer {
 	return &stdlogAdapter{
-		log:         l,
+		log:         i,
 		inferLevels: opts.InferLevels,
 		forceLevel:  opts.ForceLevel,
+	}
+}
+
+func (i *interceptLogger) ResetOutput(opts *LoggerOptions) error {
+	if or, ok := i.Logger.(OutputResettable); ok {
+		return or.ResetOutput(opts)
+	} else {
+		return nil
+	}
+}
+
+func (i *interceptLogger) ResetOutputWithFlush(opts *LoggerOptions, flushable Flushable) error {
+	if or, ok := i.Logger.(OutputResettable); ok {
+		return or.ResetOutputWithFlush(opts, flushable)
+	} else {
+		return nil
 	}
 }
